@@ -1,14 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
-import { drizzle } from "drizzle-orm/pglite";
-import * as schema from "@/db/schema";
+import type { PGlite } from "@electric-sql/pglite";
 
 const h = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock("@/db/client", () => ({ getDb: () => h.db }));
 // Query embedding fixed to [1,0,0] so PR #1 (same vector) ranks first.
 vi.mock("@/lib/agent/llm", () => ({ embed: vi.fn(async () => [1, 0, 0]) }));
 
+import { createTestDb, resetTestDb } from "@/test/pglite";
 import { GET } from "./route";
 import { upsertRepo } from "@/lib/repositories/repos";
 import { upsertPullRequest } from "@/lib/repositories/pull-requests";
@@ -16,35 +14,9 @@ import { upsertPullRequest } from "@/lib/repositories/pull-requests";
 let client: PGlite;
 
 beforeAll(async () => {
-  client = new PGlite({ extensions: { vector } });
-  await client.exec(`
-    CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE TABLE repos (
-      id serial PRIMARY KEY,
-      owner text NOT NULL,
-      name text NOT NULL,
-      provider text NOT NULL DEFAULT 'github',
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE UNIQUE INDEX repos_owner_name_idx ON repos (owner, name);
-    CREATE TABLE pull_requests (
-      id serial PRIMARY KEY,
-      repo_id integer NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-      number integer NOT NULL,
-      title text NOT NULL,
-      body text,
-      author text,
-      merged_at timestamptz,
-      summary text,
-      change_type text,
-      audience text,
-      embedding vector(3),
-      raw jsonb,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE UNIQUE INDEX pr_repo_number_idx ON pull_requests (repo_id, number);
-  `);
-  h.db = drizzle(client, { schema });
+  const t = await createTestDb();
+  client = t.client;
+  h.db = t.db;
 });
 
 afterAll(async () => {
@@ -52,7 +24,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await client.exec(`TRUNCATE pull_requests, repos RESTART IDENTITY CASCADE;`);
+  await resetTestDb(client);
 });
 
 function req(qs: string): Request {

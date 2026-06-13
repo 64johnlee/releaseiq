@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
-import { drizzle } from "drizzle-orm/pglite";
-import * as schema from "@/db/schema";
+import type { PGlite } from "@electric-sql/pglite";
 
 // Hoisted holder so the vi.mock factory can resolve the test db lazily at call time.
 const h = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock("@/db/client", () => ({ getDb: () => h.db }));
 
+import { createTestDb, resetTestDb } from "@/test/pglite";
 import { findRepo, upsertRepo } from "./repos";
 import { listByRepo, searchSimilar, upsertPullRequest } from "./pull-requests";
 import { createReleaseNote, latestReleaseNote } from "./release-notes";
@@ -15,45 +13,9 @@ import { createReleaseNote, latestReleaseNote } from "./release-notes";
 let client: PGlite;
 
 beforeAll(async () => {
-  client = new PGlite({ extensions: { vector } });
-  // Real schema against in-process Postgres. Small vector dim keeps fixtures tiny;
-  // HNSW index is omitted (not required for cosine-search correctness).
-  await client.exec(`
-    CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE TABLE repos (
-      id serial PRIMARY KEY,
-      owner text NOT NULL,
-      name text NOT NULL,
-      provider text NOT NULL DEFAULT 'github',
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE UNIQUE INDEX repos_owner_name_idx ON repos (owner, name);
-    CREATE TABLE pull_requests (
-      id serial PRIMARY KEY,
-      repo_id integer NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-      number integer NOT NULL,
-      title text NOT NULL,
-      body text,
-      author text,
-      merged_at timestamptz,
-      summary text,
-      change_type text,
-      audience text,
-      embedding vector(3),
-      raw jsonb,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-    CREATE UNIQUE INDEX pr_repo_number_idx ON pull_requests (repo_id, number);
-    CREATE TABLE release_notes (
-      id serial PRIMARY KEY,
-      repo_id integer NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-      version text,
-      markdown text NOT NULL,
-      pr_numbers jsonb,
-      created_at timestamptz NOT NULL DEFAULT now()
-    );
-  `);
-  h.db = drizzle(client, { schema });
+  const t = await createTestDb();
+  client = t.client;
+  h.db = t.db;
 });
 
 afterAll(async () => {
@@ -61,7 +23,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await client.exec(`TRUNCATE release_notes, pull_requests, repos RESTART IDENTITY CASCADE;`);
+  await resetTestDb(client);
 });
 
 function pr(number: number, summary: string, changeType: string, embedding: number[]) {
