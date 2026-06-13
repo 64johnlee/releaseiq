@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "verify": "tsc --noEmit && eslint . && vitest run --coverage"
   },
   "dependencies": {
     "drizzle-orm": "^0.36.4",
