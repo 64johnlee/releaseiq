@@ -48,6 +48,18 @@ describe("chat", () => {
     delete process.env.LLM_API_KEY;
     await expect(chat("p")).rejects.toThrow(/LLM_BASE_URL and LLM_API_KEY/);
   });
+
+  it("maps an aborted request to a clear timeout error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        throw err;
+      }),
+    );
+    await expect(chat("p")).rejects.toThrow(/timed out/);
+  });
 });
 
 describe("embed", () => {

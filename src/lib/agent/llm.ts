@@ -5,6 +5,9 @@
  */
 import { EMBEDDING_DIM } from "@/db/schema";
 
+/** Abort an LLM request after this long so a hung provider call cannot consume the whole function budget. */
+const LLM_TIMEOUT_MS = 30_000;
+
 interface LLMConfig {
   baseUrl: string;
   apiKey: string;
@@ -22,8 +25,33 @@ function config(): LLMConfig {
     baseUrl: baseUrl.replace(/\/$/, ""),
     apiKey,
     chatModel: process.env.LLM_CHAT_MODEL ?? "qwen-plus",
-    embedModel: process.env.LLM_EMBED_MODEL ?? "text-embedding-v3",
+    // Must output EMBEDDING_DIM (1536) dims — see src/db/schema.ts.
+    embedModel: process.env.LLM_EMBED_MODEL ?? "text-embedding-v4",
   };
+}
+
+/** POST JSON to the LLM API with a bounded timeout; maps an abort to a clear timeout error. */
+async function postJson(url: string, apiKey: string, payload: unknown): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`LLM request timed out after ${LLM_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface ChatOptions {
@@ -39,18 +67,11 @@ export async function chat(prompt: string, opts: ChatOptions = {}): Promise<stri
     ...(opts.system ? [{ role: "system", content: opts.system }] : []),
     { role: "user", content: prompt },
   ];
-  const res = await fetch(`${c.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${c.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: c.chatModel,
-      messages,
-      temperature: opts.temperature ?? 0.3,
-      ...(opts.json ? { response_format: { type: "json_object" } } : {}),
-    }),
+  const res = await postJson(`${c.baseUrl}/chat/completions`, c.apiKey, {
+    model: c.chatModel,
+    messages,
+    temperature: opts.temperature ?? 0.3,
+    ...(opts.json ? { response_format: { type: "json_object" } } : {}),
   });
   if (!res.ok) {
     throw new Error(`LLM chat ${res.status}: ${await res.text()}`);
@@ -63,17 +84,10 @@ export async function chat(prompt: string, opts: ChatOptions = {}): Promise<stri
 
 export async function embed(text: string): Promise<number[]> {
   const c = config();
-  const res = await fetch(`${c.baseUrl}/embeddings`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${c.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: c.embedModel,
-      input: text,
-      dimensions: EMBEDDING_DIM,
-    }),
+  const res = await postJson(`${c.baseUrl}/embeddings`, c.apiKey, {
+    model: c.embedModel,
+    input: text,
+    dimensions: EMBEDDING_DIM,
   });
   if (!res.ok) {
     throw new Error(`LLM embed ${res.status}: ${await res.text()}`);
