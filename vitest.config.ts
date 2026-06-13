@@ -7,6 +7,12 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/lib/**/*.ts", "src/db/**/*.ts"],
+      exclude: ["src/**/*.test.ts"],
+    },
   },
   resolve: {
     alias: { "@": srcDir },
