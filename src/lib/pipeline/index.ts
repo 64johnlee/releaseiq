@@ -12,8 +12,22 @@ export interface ProcessResult {
 }
 
 /**
+ * Max PRs summarized + embedded concurrently. Bounded so a large repo fits the
+ * serverless function time limit without tripping LLM provider rate limits.
+ */
+const INGEST_CONCURRENCY = 5;
+
+async function processOne(repoId: number, pr: PullRequestInput): Promise<number> {
+  const summary = await summarizePR(pr);
+  const embedding = await embed(`${pr.title}\n\n${summary.summary}`);
+  await upsertPullRequest({ repoId, input: pr, summary, embedding });
+  return pr.number;
+}
+
+/**
  * Core spine: ingest -> summarize -> embed -> store.
  * Accepts pre-supplied PRs (e.g. from request body) or fetches from GitHub when omitted.
+ * PRs run in bounded-concurrency batches; result order matches input order.
  */
 export async function processRepo(
   owner: string,
@@ -24,13 +38,12 @@ export async function processRepo(
   const repo = await upsertRepo(owner, name);
   const inputs = prs ?? (await fetchMergedPRs(owner, name, fetchLimit));
 
-  const done: number[] = [];
-  for (const pr of inputs) {
-    const summary = await summarizePR(pr);
-    const embedding = await embed(`${pr.title}\n\n${summary.summary}`);
-    await upsertPullRequest({ repoId: repo.id, input: pr, summary, embedding });
-    done.push(pr.number);
+  const prNumbers: number[] = [];
+  for (let i = 0; i < inputs.length; i += INGEST_CONCURRENCY) {
+    const batch = inputs.slice(i, i + INGEST_CONCURRENCY);
+    const nums = await Promise.all(batch.map((pr) => processOne(repo.id, pr)));
+    prNumbers.push(...nums);
   }
 
-  return { repoId: repo.id, processed: done.length, prNumbers: done };
+  return { repoId: repo.id, processed: prNumbers.length, prNumbers };
 }

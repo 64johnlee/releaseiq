@@ -74,4 +74,19 @@ describe("processRepo", () => {
     expect(result).toEqual({ repoId: 42, processed: 0, prNumbers: [] });
     expect(summarizePR).not.toHaveBeenCalled();
   });
+
+  it("processes more PRs than the concurrency limit, preserving input order", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      number: i + 1,
+      title: `PR ${i + 1}`,
+      body: null,
+      author: null,
+      mergedAt: null,
+    }));
+    const result = await processRepo("o", "r", many);
+    expect(result.processed).toBe(12);
+    expect(result.prNumbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(summarizePR).toHaveBeenCalledTimes(12);
+    expect(upsertPullRequest).toHaveBeenCalledTimes(12);
+  });
 });
