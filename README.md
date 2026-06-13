@@ -52,6 +52,16 @@ curl -X POST localhost:3000/api/release-notes -H 'content-type: application/json
 curl 'localhost:3000/api/release-notes?repo=vercel/next.js'
 ```
 
+## Demo data
+
+```bash
+npm run db:seed         # insert demo/releaseiq (6 PRs + a release note) with valid embeddings
+npm run db:seed:clear   # remove the demo repo (PRs + notes cascade)
+```
+
+Lets you demo the repos / pulls / release-notes views against a live DB without an LLM key.
+(Semantic search still needs an LLM to embed the query.)
+
 ## Quality
 
 ```bash
@@ -59,8 +69,8 @@ npm run verify   # typecheck + lint + tests with coverage thresholds
 npm run build    # production build
 ```
 
-- **51 tests** (Vitest): unit (pipeline, prompts, params, llm) plus integration against
-  **real in-process Postgres + pgvector** (PGlite) covering the repositories and all four API routes.
+- **63 tests** (Vitest): unit (pipeline, prompts, params, llm) plus integration against
+  **real in-process Postgres + pgvector** (PGlite) covering the repositories and all six API routes.
 - Coverage thresholds enforced at 80% (lib + db) — see `vitest.config.ts`.
 - CI (`.github/workflows/ci.yml`) runs `verify` + `build` on push/PR. No secrets needed:
   the LLM is mocked and the database is in-process.

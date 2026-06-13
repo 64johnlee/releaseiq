@@ -16,7 +16,8 @@
     "lint": "eslint .",
     "test:coverage": "vitest run --coverage",
     "verify": "tsc --noEmit && eslint . && vitest run --coverage",
-    "db:seed": "node scripts/seed.mjs"
+    "db:seed": "node scripts/seed.mjs",
+    "db:seed:clear": "node scripts/seed-clear.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.36.4",
