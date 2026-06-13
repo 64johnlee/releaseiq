@@ -61,4 +61,22 @@ describe("POST /api/ingest", () => {
     expect(json.processed).toBe(2);
     expect(json.prNumbers).toEqual([1, 2]);
   });
+
+  it("returns 400 when pullRequests is not an array", async () => {
+    const res = await POST(post(JSON.stringify({ owner: "a", name: "b", pullRequests: "nope" })));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when a pull request is malformed", async () => {
+    const res = await POST(
+      post(JSON.stringify({ owner: "a", name: "b", pullRequests: [{ title: "no number" }] })),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when too many pull requests are supplied", async () => {
+    const many = Array.from({ length: 201 }, (_, i) => ({ number: i, title: "x" }));
+    const res = await POST(post(JSON.stringify({ owner: "a", name: "b", pullRequests: many })));
+    expect(res.status).toBe(400);
+  });
 });
