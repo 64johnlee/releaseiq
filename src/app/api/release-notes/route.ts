@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
+import { parseRepo } from "@/lib/params";
 import { findRepo } from "@/lib/repositories/repos";
 import { latestReleaseNote } from "@/lib/repositories/release-notes";
 import { generateReleaseNotes } from "@/lib/pipeline/release-notes";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function parseRepo(param: string | null): [string, string] | null {
-  if (!param || !param.includes("/")) return null;
-  const [owner, name] = param.split("/");
-  if (!owner || !name) return null;
-  return [owner, name];
-}
 
 /** GET /api/release-notes?repo=owner/name — latest stored release notes. */
 export async function GET(request: Request) {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { embed } from "@/lib/agent/llm";
-import { clampInt } from "@/lib/params";
+import { clampInt, parseRepo } from "@/lib/params";
 import { findRepo } from "@/lib/repositories/repos";
 import { searchSimilar } from "@/lib/repositories/pull-requests";
 
@@ -13,14 +13,14 @@ export async function GET(request: Request) {
   const q = searchParams.get("q");
   const limit = clampInt(searchParams.get("limit"), 10, 1, 50);
 
-  if (!repoParam || !repoParam.includes("/") || !q) {
+  const parsed = parseRepo(repoParam);
+  if (!parsed || !q) {
     return NextResponse.json(
       { error: "repo=owner/name and q are required" },
       { status: 400 },
     );
   }
-
-  const [owner, name] = repoParam.split("/");
+  const [owner, name] = parsed;
   try {
     const repo = await findRepo(owner, name);
     if (!repo) {

@@ -13,3 +13,11 @@ export function clampInt(
   if (!Number.isFinite(n)) return fallback;
   return Math.min(Math.max(Math.trunc(n), min), max);
 }
+
+/** Parse a `repo=owner/name` param into `[owner, name]`, or null if missing/malformed. */
+export function parseRepo(param: string | null | undefined): [string, string] | null {
+  if (!param || !param.includes("/")) return null;
+  const [owner, name] = param.split("/");
+  if (!owner || !name) return null;
+  return [owner, name];
+}
