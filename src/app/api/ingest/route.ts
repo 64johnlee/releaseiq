@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { processRepo } from "@/lib/pipeline";
+import { clampInt } from "@/lib/params";
 import type { PullRequestInput } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
       body.owner,
       body.name,
       body.pullRequests,
-      body.fetchLimit ?? 30,
+      clampInt(body.fetchLimit, 30, 1, 100),
     );
     return NextResponse.json(result);
   } catch (err) {

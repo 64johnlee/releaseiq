@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { embed } from "@/lib/agent/llm";
+import { clampInt } from "@/lib/params";
 import { findRepo } from "@/lib/repositories/repos";
 import { searchSimilar } from "@/lib/repositories/pull-requests";
 
@@ -10,7 +11,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const repoParam = searchParams.get("repo");
   const q = searchParams.get("q");
-  const limit = Number(searchParams.get("limit") ?? "10");
+  const limit = clampInt(searchParams.get("limit"), 10, 1, 50);
 
   if (!repoParam || !repoParam.includes("/") || !q) {
     return NextResponse.json(
