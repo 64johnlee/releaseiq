@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampInt } from "./params";
+import { clampInt, parseRepo } from "./params";
 
 describe("clampInt", () => {
   it("returns the fallback for null/undefined/empty", () => {
@@ -24,5 +24,23 @@ describe("clampInt", () => {
 
   it("truncates fractional input", () => {
     expect(clampInt("7.9", 10, 1, 50)).toBe(7);
+  });
+});
+
+describe("parseRepo", () => {
+  it("parses owner/name", () => {
+    expect(parseRepo("acme/web")).toEqual(["acme", "web"]);
+  });
+
+  it("returns null for missing or non-slashed input", () => {
+    expect(parseRepo(null)).toBeNull();
+    expect(parseRepo(undefined)).toBeNull();
+    expect(parseRepo("")).toBeNull();
+    expect(parseRepo("noslash")).toBeNull();
+  });
+
+  it("returns null when owner or name is empty", () => {
+    expect(parseRepo("/web")).toBeNull();
+    expect(parseRepo("acme/")).toBeNull();
   });
 });
