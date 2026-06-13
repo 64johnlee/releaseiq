@@ -81,8 +81,12 @@ export async function listByRepo(repoId: number, limit = 100) {
   return db
     .select({
       number: pullRequests.number,
+      title: pullRequests.title,
       summary: pullRequests.summary,
       changeType: pullRequests.changeType,
+      audience: pullRequests.audience,
+      mergedAt: pullRequests.mergedAt,
+      url: sql<string | null>`${pullRequests.raw}->>'url'`,
     })
     .from(pullRequests)
     .where(eq(pullRequests.repoId, repoId))
