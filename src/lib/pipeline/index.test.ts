@@ -50,7 +50,7 @@ describe("processRepo", () => {
     expect(embed).toHaveBeenCalledTimes(2);
     expect(embed).toHaveBeenCalledWith("Feature A\n\ndid a thing");
     expect(upsertPullRequest).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ repoId: 42, processed: 2, prNumbers: [10, 11] });
+    expect(result).toEqual({ repoId: 42, processed: 2, failed: 0, prNumbers: [10, 11] });
   });
 
   it("fetches from GitHub when PRs are not provided", async () => {
@@ -71,8 +71,19 @@ describe("processRepo", () => {
 
   it("returns zero for an empty PR list", async () => {
     const result = await processRepo("o", "r", []);
-    expect(result).toEqual({ repoId: 42, processed: 0, prNumbers: [] });
+    expect(result).toEqual({ repoId: 42, processed: 0, failed: 0, prNumbers: [] });
     expect(summarizePR).not.toHaveBeenCalled();
+  });
+
+  it("isolates a single PR failure and still processes the rest", async () => {
+    vi.mocked(summarizePR).mockImplementation(async (pr) => {
+      if (pr.number === 10) throw new Error("LLM hiccup");
+      return summary;
+    });
+    const result = await processRepo("o", "r", prs);
+    expect(result.processed).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.prNumbers).toEqual([11]);
   });
 
   it("processes more PRs than the concurrency limit, preserving input order", async () => {

@@ -8,6 +8,8 @@ import type { PullRequestInput } from "@/types";
 export interface ProcessResult {
   repoId: number;
   processed: number;
+  /** PRs whose summarize/embed/store failed; the rest still succeed. */
+  failed: number;
   prNumbers: number[];
 }
 
@@ -28,6 +30,7 @@ async function processOne(repoId: number, pr: PullRequestInput): Promise<number>
  * Core spine: ingest -> summarize -> embed -> store.
  * Accepts pre-supplied PRs (e.g. from request body) or fetches from GitHub when omitted.
  * PRs run in bounded-concurrency batches; result order matches input order.
+ * A single PR's failure is isolated (counted in `failed`) so the rest still succeed.
  */
 export async function processRepo(
   owner: string,
@@ -39,11 +42,15 @@ export async function processRepo(
   const inputs = prs ?? (await fetchMergedPRs(owner, name, fetchLimit));
 
   const prNumbers: number[] = [];
+  let failed = 0;
   for (let i = 0; i < inputs.length; i += INGEST_CONCURRENCY) {
     const batch = inputs.slice(i, i + INGEST_CONCURRENCY);
-    const nums = await Promise.all(batch.map((pr) => processOne(repo.id, pr)));
-    prNumbers.push(...nums);
+    const settled = await Promise.allSettled(batch.map((pr) => processOne(repo.id, pr)));
+    for (const result of settled) {
+      if (result.status === "fulfilled") prNumbers.push(result.value);
+      else failed += 1;
+    }
   }
 
-  return { repoId: repo.id, processed: prNumbers.length, prNumbers };
+  return { repoId: repo.id, processed: prNumbers.length, failed, prNumbers };
 }
