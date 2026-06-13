@@ -10,7 +10,12 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-/** Embedding dimension. text-embedding-v3 (Qwen) and text-embedding-3-small (OpenAI) both support 1536. */
+/**
+ * Embedding dimension. Must equal the output dimension of LLM_EMBED_MODEL.
+ * OpenAI text-embedding-3-small = 1536; Qwen text-embedding-v4 supports 1536.
+ * (Qwen text-embedding-v3 maxes at 1024 — incompatible with this schema.)
+ * Changing this value requires regenerating the migration (the vector(N) column).
+ */
 export const EMBEDDING_DIM = 1536;
 
 export const repos = pgTable(
