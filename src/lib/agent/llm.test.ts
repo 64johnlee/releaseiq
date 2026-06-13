@@ -28,7 +28,7 @@ describe("chat", () => {
     const out = await chat("a prompt", { system: "be terse", json: true });
     expect(out).toBe("hello");
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://api.example.com/v1/chat/completions");
     const body = JSON.parse(init.body as string);
     expect(body.model).toBe("test-chat");
