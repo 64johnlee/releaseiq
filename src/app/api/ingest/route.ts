@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { serverError } from "@/lib/http";
 import { processRepo } from "@/lib/pipeline";
 import { clampInt } from "@/lib/params";
 import type { PullRequestInput } from "@/types";
@@ -60,9 +61,6 @@ export async function POST(request: Request) {
     );
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return serverError(err);
   }
 }

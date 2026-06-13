@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { embed } from "@/lib/agent/llm";
+import { serverError } from "@/lib/http";
 import { clampInt, parseRepo } from "@/lib/params";
 import { findRepo } from "@/lib/repositories/repos";
 import { searchSimilar } from "@/lib/repositories/pull-requests";
@@ -30,9 +31,6 @@ export async function GET(request: Request) {
     const hits = await searchSimilar(repo.id, queryEmbedding, limit);
     return NextResponse.json({ query: q, repo: repoParam, hits });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return serverError(err);
   }
 }

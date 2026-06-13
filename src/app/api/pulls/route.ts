@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { serverError } from "@/lib/http";
 import { clampInt, parseRepo } from "@/lib/params";
 import { findRepo } from "@/lib/repositories/repos";
 import { listByRepo } from "@/lib/repositories/pull-requests";
@@ -23,9 +24,6 @@ export async function GET(request: Request) {
     const pullRequests = await listByRepo(repo.id, limit);
     return NextResponse.json({ repo: repoParam, pullRequests });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return serverError(err);
   }
 }

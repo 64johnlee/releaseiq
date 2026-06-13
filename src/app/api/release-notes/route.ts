@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { serverError } from "@/lib/http";
 import { parseRepo } from "@/lib/params";
 import { findRepo } from "@/lib/repositories/repos";
 import { latestReleaseNote } from "@/lib/repositories/release-notes";
@@ -32,10 +33,7 @@ export async function GET(request: Request) {
       prNumbers: note.prNumbers ?? [],
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return serverError(err);
   }
 }
 
@@ -68,9 +66,6 @@ export async function POST(request: Request) {
       prNumbers: note.prNumbers ?? [],
     });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return serverError(err);
   }
 }
