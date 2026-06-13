@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "test:coverage": "vitest run --coverage",
-    "verify": "tsc --noEmit && eslint . && vitest run --coverage"
+    "verify": "tsc --noEmit && eslint . && vitest run --coverage",
+    "db:seed": "node scripts/seed.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.36.4",
