@@ -11,6 +11,18 @@ import { listByRepo } from "@/lib/repositories/pull-requests";
 import { createReleaseNote } from "@/lib/repositories/release-notes";
 import { generateReleaseNotes } from "./release-notes";
 
+// listByRepo returns enriched rows; release-notes generation only reads
+// number/summary/changeType, so fill the rest with nulls for the fixtures.
+const row = (number: number, summary: string | null, changeType: string | null) => ({
+  number,
+  title: `PR ${number}`,
+  summary,
+  changeType,
+  audience: null,
+  mergedAt: null,
+  url: null,
+});
+
 const repo = {
   id: 7,
   owner: "o",
@@ -46,8 +58,8 @@ describe("generateReleaseNotes", () => {
 
   it("generates and stores notes from summarized PRs", async () => {
     vi.mocked(listByRepo).mockResolvedValue([
-      { number: 1, summary: "adds caching", changeType: "feat" },
-      { number: 2, summary: "fixes a bug", changeType: "fix" },
+      row(1, "adds caching", "feat"),
+      row(2, "fixes a bug", "fix"),
     ]);
     const note = await generateReleaseNotes("o", "r", "1.0.0");
     expect(chat).toHaveBeenCalledTimes(1);
@@ -62,8 +74,8 @@ describe("generateReleaseNotes", () => {
 
   it("skips PRs without a summary and defaults a missing change type to chore", async () => {
     vi.mocked(listByRepo).mockResolvedValue([
-      { number: 1, summary: "kept", changeType: null },
-      { number: 2, summary: null, changeType: "fix" },
+      row(1, "kept", null),
+      row(2, null, "fix"),
     ]);
     await generateReleaseNotes("o", "r");
     const prompt = vi.mocked(chat).mock.calls[0][0];
@@ -74,9 +86,7 @@ describe("generateReleaseNotes", () => {
   });
 
   it("short-circuits without calling the LLM when no summarized PRs exist", async () => {
-    vi.mocked(listByRepo).mockResolvedValue([
-      { number: 2, summary: null, changeType: "fix" },
-    ]);
+    vi.mocked(listByRepo).mockResolvedValue([row(2, null, "fix")]);
     const note = await generateReleaseNotes("o", "r");
     expect(chat).not.toHaveBeenCalled();
     expect(createReleaseNote).toHaveBeenCalledWith({
