@@ -35,7 +35,7 @@ async function seed() {
   const repo = await upsertRepo("acme", "web");
   await upsertPullRequest({
     repoId: repo.id,
-    input: { number: 1, title: "PR 1", body: null, author: null, mergedAt: null },
+    input: { number: 1, title: "PR 1", body: null, author: null, mergedAt: null, raw: { url: "https://gh/pr/1" } },
     summary: { summary: "adds caching", changeType: "feat", audience: "customer" },
     embedding: [1, 0, 0],
   });
@@ -66,6 +66,8 @@ describe("GET /api/search", () => {
     const json = await res.json();
     expect(json.repo).toBe("acme/web");
     expect(json.hits[0].number).toBe(1);
+    expect(json.hits[0].audience).toBe("customer");
+    expect(json.hits[0].url).toBe("https://gh/pr/1");
     expect(json.hits.map((hit: { number: number }) => hit.number)).not.toContain(2);
   });
 

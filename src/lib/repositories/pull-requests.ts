@@ -58,12 +58,15 @@ export async function searchSimilar(
 ): Promise<SearchHit[]> {
   const db = getDb();
   const similarity = sql<number>`1 - (${cosineDistance(pullRequests.embedding, queryEmbedding)})`;
+  const url = sql<string | null>`${pullRequests.raw}->>'url'`;
   const rows = await db
     .select({
       number: pullRequests.number,
       title: pullRequests.title,
       summary: pullRequests.summary,
       changeType: pullRequests.changeType,
+      audience: pullRequests.audience,
+      url,
       similarity,
     })
     .from(pullRequests)

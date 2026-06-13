@@ -23,5 +23,7 @@ export interface SearchHit {
   title: string;
   summary: string | null;
   changeType: string | null;
+  audience: string | null;
+  url: string | null;
   similarity: number;
 }
