@@ -91,6 +91,48 @@ function PRCard({ pr, similarity }: { pr: Pull; similarity?: number }) {
   );
 }
 
+/** Minimal renderer for our release-notes Markdown (## headings + "- " bullets). */
+function Notes({ md }: { md: string }) {
+  return (
+    <div style={{ lineHeight: 1.7 }}>
+      {md.split("\n").map((line, i) => {
+        const t = line.trim();
+        if (!t) return null;
+        if (t.startsWith("## ")) {
+          return (
+            <h3
+              key={i}
+              style={{
+                color: c.accent,
+                fontFamily: c.mono,
+                fontSize: ".8rem",
+                textTransform: "uppercase",
+                letterSpacing: ".06em",
+                margin: "1.1rem 0 .35rem",
+              }}
+            >
+              {t.slice(3)}
+            </h3>
+          );
+        }
+        if (t.startsWith("- ")) {
+          return (
+            <div key={i} style={{ color: c.text, display: "flex", gap: ".5rem" }}>
+              <span style={{ color: c.muted }}>•</span>
+              <span>{t.slice(2)}</span>
+            </div>
+          );
+        }
+        return (
+          <p key={i} style={{ color: c.muted, margin: ".2rem 0" }}>
+            {t}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Home() {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -211,7 +253,7 @@ export default function Home() {
           <h2 style={{ fontSize: "1.2rem", borderBottom: `1px solid ${c.border}`, paddingBottom: ".4rem" }}>
             Release notes
           </h2>
-          <pre style={{ whiteSpace: "pre-wrap", color: c.text, fontFamily: "inherit", lineHeight: 1.6 }}>{notes}</pre>
+          <Notes md={notes} />
         </section>
       )}
     </main>
