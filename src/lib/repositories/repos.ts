@@ -1,6 +1,29 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { repos, type Repo } from "@/db/schema";
+import { pullRequests, repos, type Repo } from "@/db/schema";
+
+export interface RepoSummary {
+  owner: string;
+  name: string;
+  prCount: number;
+  createdAt: Date;
+}
+
+/** All ingested repos with their PR counts, newest first. */
+export async function listRepos(): Promise<RepoSummary[]> {
+  const db = getDb();
+  return db
+    .select({
+      owner: repos.owner,
+      name: repos.name,
+      prCount: sql<number>`count(${pullRequests.id})::int`,
+      createdAt: repos.createdAt,
+    })
+    .from(repos)
+    .leftJoin(pullRequests, eq(pullRequests.repoId, repos.id))
+    .groupBy(repos.id)
+    .orderBy(desc(repos.createdAt));
+}
 
 export async function upsertRepo(
   owner: string,
