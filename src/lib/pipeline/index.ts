@@ -1,9 +1,9 @@
-import { embed } from "@/lib/agent/llm";
+import { embedMany } from "@/lib/agent/llm";
 import { upsertRepo } from "@/lib/repositories/repos";
 import { upsertPullRequest } from "@/lib/repositories/pull-requests";
 import { summarizePR } from "./summarize";
 import { fetchMergedPRs } from "./ingest";
-import type { PullRequestInput } from "@/types";
+import type { PullRequestInput, PullRequestSummary } from "@/types";
 
 export interface ProcessResult {
   repoId: number;
@@ -14,16 +14,56 @@ export interface ProcessResult {
 }
 
 /**
- * Max PRs summarized + embedded concurrently. Bounded so a large repo fits the
- * serverless function time limit without tripping LLM provider rate limits.
+ * Batch size: PRs summarized concurrently and embedded together in one call.
+ * Bounded so a large repo fits the serverless function time limit, stays within
+ * the embedding model's per-request instance cap, and avoids LLM rate limits.
  */
 const INGEST_CONCURRENCY = 5;
 
-async function processOne(repoId: number, pr: PullRequestInput): Promise<number> {
-  const summary = await summarizePR(pr);
-  const embedding = await embed(`${pr.title}\n\n${summary.summary}`);
-  await upsertPullRequest({ repoId, input: pr, summary, embedding });
-  return pr.number;
+interface BatchOutcome {
+  /** PR numbers that fully succeeded (summarized, embedded, stored), in input order. */
+  ok: number[];
+  /** Count of PRs in this batch that failed at any stage. */
+  failed: number;
+}
+
+/**
+ * Process one bounded batch: summarize each PR independently, embed all successful
+ * summaries in a SINGLE provider call, then store each. Summarize and store failures
+ * are isolated per-PR; an embed failure (one shared call) fails the batch's ready PRs
+ * together — an accepted trade for far fewer embedding round-trips.
+ */
+async function processBatch(repoId: number, batch: PullRequestInput[]): Promise<BatchOutcome> {
+  let failed = 0;
+
+  const summarized = await Promise.allSettled(batch.map((pr) => summarizePR(pr)));
+  const ready: { pr: PullRequestInput; summary: PullRequestSummary }[] = [];
+  summarized.forEach((result, i) => {
+    if (result.status === "fulfilled") ready.push({ pr: batch[i], summary: result.value });
+    else failed += 1;
+  });
+  if (ready.length === 0) return { ok: [], failed };
+
+  let embeddings: number[][];
+  try {
+    embeddings = await embedMany(ready.map(({ pr, summary }) => `${pr.title}\n\n${summary.summary}`));
+  } catch {
+    return { ok: [], failed: failed + ready.length };
+  }
+
+  const stored = await Promise.allSettled(
+    ready.map(({ pr, summary }, i) =>
+      upsertPullRequest({ repoId, input: pr, summary, embedding: embeddings[i] }).then(
+        () => pr.number,
+      ),
+    ),
+  );
+  const ok: number[] = [];
+  stored.forEach((result) => {
+    if (result.status === "fulfilled") ok.push(result.value);
+    else failed += 1;
+  });
+  return { ok, failed };
 }
 
 /**
@@ -45,11 +85,9 @@ export async function processRepo(
   let failed = 0;
   for (let i = 0; i < inputs.length; i += INGEST_CONCURRENCY) {
     const batch = inputs.slice(i, i + INGEST_CONCURRENCY);
-    const settled = await Promise.allSettled(batch.map((pr) => processOne(repo.id, pr)));
-    for (const result of settled) {
-      if (result.status === "fulfilled") prNumbers.push(result.value);
-      else failed += 1;
-    }
+    const outcome = await processBatch(repo.id, batch);
+    prNumbers.push(...outcome.ok);
+    failed += outcome.failed;
   }
 
   return { repoId: repo.id, processed: prNumbers.length, failed, prNumbers };

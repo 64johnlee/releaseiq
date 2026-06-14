@@ -7,7 +7,7 @@ vi.mock("@/lib/agent/llm", () => ({
   chat: vi.fn(async () =>
     JSON.stringify({ summary: "s", changeType: "feat", audience: "customer" }),
   ),
-  embed: vi.fn(async () => [1, 0, 0]),
+  embedMany: vi.fn(async (texts: string[]) => texts.map(() => [1, 0, 0])),
 }));
 
 import { createTestDb, resetTestDb } from "@/test/pglite";
