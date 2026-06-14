@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chat, embed } from "./llm";
 
+// The vertex provider is exercised in vertex.test.ts; here we only verify that
+// llm.ts delegates to it when LLM_PROVIDER=vertex (and not otherwise).
+vi.mock("./vertex", () => ({
+  vertexChat: vi.fn(async () => "vertex-chat"),
+  vertexEmbed: vi.fn(async () => new Array(1536).fill(0.5)),
+}));
+
 const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
@@ -79,5 +86,17 @@ describe("embed", () => {
       vi.fn(async () => new Response(JSON.stringify({ data: [{ embedding: [1, 2, 3] }] }), { status: 200 })),
     );
     await expect(embed("text")).rejects.toThrow(/Embedding length/);
+  });
+});
+
+describe("provider dispatch", () => {
+  it("routes chat to the vertex provider when LLM_PROVIDER=vertex", async () => {
+    process.env.LLM_PROVIDER = "vertex";
+    await expect(chat("p")).resolves.toBe("vertex-chat");
+  });
+
+  it("routes embed to the vertex provider when LLM_PROVIDER=vertex", async () => {
+    process.env.LLM_PROVIDER = "vertex";
+    await expect(embed("p", "RETRIEVAL_QUERY")).resolves.toHaveLength(1536);
   });
 });
