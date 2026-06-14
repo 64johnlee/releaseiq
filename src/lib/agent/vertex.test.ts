@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { vertexChat, vertexEmbed } from "./vertex";
+import { vertexChat, vertexEmbedMany } from "./vertex";
 
 // Isolate the provider from the OAuth flow — token minting is covered in google-auth.test.ts.
 vi.mock("./google-auth", () => ({
@@ -95,18 +95,31 @@ describe("vertexChat", () => {
     );
     await expect(vertexChat("p")).rejects.toThrow(/timed out/);
   });
+
+  it("propagates a non-abort fetch error unchanged", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+    await expect(vertexChat("p")).rejects.toThrow(/network down/);
+  });
 });
 
-describe("vertexEmbed", () => {
-  it("posts to the native predict endpoint requesting 1536 dims and returns the vector", async () => {
-    const vec = new Array(1536).fill(0.02);
+describe("vertexEmbedMany", () => {
+  it("posts every text as one instance, requests 1536 dims, and returns ordered vectors", async () => {
+    const v1 = new Array(1536).fill(0.01);
+    const v2 = new Array(1536).fill(0.02);
     const fetchMock = vi.fn(async () =>
-      jsonResponse({ predictions: [{ embeddings: { values: vec } }] }),
+      jsonResponse({ predictions: [{ embeddings: { values: v1 } }, { embeddings: { values: v2 } }] }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const out = await vertexEmbed("some text");
-    expect(out).toHaveLength(1536);
+    const out = await vertexEmbedMany(["text one", "text two"]);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toHaveLength(1536);
+    expect(out[1][0]).toBe(0.02);
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(
@@ -114,35 +127,49 @@ describe("vertexEmbed", () => {
     );
     const body = JSON.parse(init.body as string);
     expect(body.parameters.outputDimensionality).toBe(1536);
-    expect(body.instances[0].task_type).toBe("RETRIEVAL_DOCUMENT");
+    expect(body.instances).toHaveLength(2);
+    expect(body.instances[0]).toEqual({ content: "text one", task_type: "RETRIEVAL_DOCUMENT" });
   });
 
-  it("passes through an explicit task type", async () => {
+  it("returns an empty array without calling the API for no inputs", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(vertexEmbedMany([])).resolves.toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("passes through an explicit task type for every instance", async () => {
     const vec = new Array(1536).fill(0.02);
     const fetchMock = vi.fn(async () =>
       jsonResponse({ predictions: [{ embeddings: { values: vec } }] }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await vertexEmbed("q", "RETRIEVAL_QUERY");
+    await vertexEmbedMany(["q"], "RETRIEVAL_QUERY");
     const body = JSON.parse(
       (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string,
     );
     expect(body.instances[0].task_type).toBe("RETRIEVAL_QUERY");
   });
 
-  it("throws when the returned embedding has the wrong length", async () => {
+  it("throws when the prediction count does not match the input count", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        jsonResponse({ predictions: [{ embeddings: { values: [1, 2, 3] } }] }),
-      ),
+      vi.fn(async () => jsonResponse({ predictions: [{ embeddings: { values: new Array(1536).fill(0) } }] })),
     );
-    await expect(vertexEmbed("text")).rejects.toThrow(/Embedding length/);
+    await expect(vertexEmbedMany(["a", "b"])).rejects.toThrow(/1 vectors for 2 inputs/);
+  });
+
+  it("throws when a returned embedding has the wrong length", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ predictions: [{ embeddings: { values: [1, 2, 3] } }] })),
+    );
+    await expect(vertexEmbedMany(["text"])).rejects.toThrow(/Embedding length/);
   });
 
   it("throws on a non-ok response", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse("nope", 429)));
-    await expect(vertexEmbed("text")).rejects.toThrow(/Vertex embed 429/);
+    await expect(vertexEmbedMany(["text"])).rejects.toThrow(/Vertex embed 429/);
   });
 });

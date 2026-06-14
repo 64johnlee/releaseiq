@@ -10,7 +10,7 @@
  */
 import { EMBEDDING_DIM } from "@/db/schema";
 import { postJsonWithRetry, readErrorBody } from "./fetch-json";
-import { vertexChat, vertexEmbed } from "./vertex";
+import { vertexChat, vertexEmbedMany } from "./vertex";
 import type { EmbedTaskType } from "./vertex";
 
 interface LLMConfig {
@@ -80,9 +80,49 @@ export async function chat(prompt: string, opts: ChatOptions = {}): Promise<stri
 }
 
 /**
- * Embed text to an EMBEDDING_DIM vector. `taskType` only affects the Vertex
- * provider (it tunes retrieval-vs-document embeddings); the OpenAI-compatible
- * path has no task-type concept and ignores it.
+ * Embed many texts to EMBEDDING_DIM vectors in one provider call (order preserved).
+ * Both providers support batching natively, so this is far cheaper than one call
+ * per text. `taskType` only affects the Vertex provider; the OpenAI-compatible path
+ * has no task-type concept and ignores it.
+ */
+export async function embedMany(
+  texts: string[],
+  taskType: EmbedTaskType = "RETRIEVAL_DOCUMENT",
+): Promise<number[][]> {
+  if (texts.length === 0) return [];
+  if (texts.some((t) => !t.trim())) {
+    throw new Error("embedMany: every text must be a non-empty string");
+  }
+  if (provider() === "vertex") return vertexEmbedMany(texts, taskType);
+
+  const c = config();
+  const res = await postJsonWithRetry(`${c.baseUrl}/embeddings`, c.apiKey, {
+    model: c.embedModel,
+    input: texts,
+    dimensions: EMBEDDING_DIM,
+  });
+  if (!res.ok) {
+    throw new Error(`LLM embed ${res.status}: ${await readErrorBody(res)}`);
+  }
+  const data = (await res.json()) as { data: { embedding: number[]; index: number }[] };
+  // The OpenAI-compatible API tags each result with its input index; sort to be safe.
+  const items = [...(data.data ?? [])].sort((a, b) => a.index - b.index);
+  if (items.length !== texts.length) {
+    throw new Error(`LLM embed returned ${items.length} vectors for ${texts.length} inputs`);
+  }
+  return items.map((item, i) => {
+    const vec = item.embedding;
+    if (!vec || vec.length !== EMBEDDING_DIM) {
+      throw new Error(
+        `Embedding length ${vec?.length ?? 0} != expected ${EMBEDDING_DIM} (input ${i})`,
+      );
+    }
+    return vec;
+  });
+}
+
+/**
+ * Embed a single text to an EMBEDDING_DIM vector — a thin convenience over embedMany.
  */
 export async function embed(
   text: string,
@@ -91,23 +131,5 @@ export async function embed(
   if (!text.trim()) {
     throw new Error("embed: text must be a non-empty string");
   }
-  if (provider() === "vertex") return vertexEmbed(text, taskType);
-
-  const c = config();
-  const res = await postJsonWithRetry(`${c.baseUrl}/embeddings`, c.apiKey, {
-    model: c.embedModel,
-    input: text,
-    dimensions: EMBEDDING_DIM,
-  });
-  if (!res.ok) {
-    throw new Error(`LLM embed ${res.status}: ${await readErrorBody(res)}`);
-  }
-  const data = (await res.json()) as { data: { embedding: number[] }[] };
-  const vec = data.data[0]?.embedding;
-  if (!vec || vec.length !== EMBEDDING_DIM) {
-    throw new Error(
-      `Embedding length ${vec?.length ?? 0} != expected ${EMBEDDING_DIM}`,
-    );
-  }
-  return vec;
+  return (await embedMany([text], taskType))[0];
 }

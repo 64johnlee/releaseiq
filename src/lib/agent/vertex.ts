@@ -83,15 +83,22 @@ export async function vertexChat(prompt: string, opts: ChatOptions = {}): Promis
   return data.choices[0]?.message?.content ?? "";
 }
 
-export async function vertexEmbed(
-  text: string,
+/**
+ * Embed many texts in a single predict call. The native API accepts one instance
+ * per text and returns predictions in the same order; far fewer round-trips (and
+ * tokens) than one call per PR. Callers bound the batch size (the ingest pipeline
+ * uses its concurrency limit) to stay within the model's per-request instance cap.
+ */
+export async function vertexEmbedMany(
+  texts: string[],
   taskType: EmbedTaskType = "RETRIEVAL_DOCUMENT",
-): Promise<number[]> {
+): Promise<number[][]> {
+  if (texts.length === 0) return [];
   const c = vertexConfig();
   const token = await getGoogleAccessToken();
   const url = `${apiHost(c.location)}/v1/projects/${c.projectId}/locations/${c.location}/publishers/google/models/${c.embedModel}:predict`;
   const res = await postJsonWithRetry(url, token, {
-    instances: [{ content: text, task_type: taskType }],
+    instances: texts.map((content) => ({ content, task_type: taskType })),
     parameters: { outputDimensionality: EMBEDDING_DIM },
   });
   if (!res.ok) {
@@ -100,9 +107,17 @@ export async function vertexEmbed(
   const data = (await res.json()) as {
     predictions: { embeddings: { values: number[] } }[];
   };
-  const vec = data.predictions?.[0]?.embeddings?.values;
-  if (!vec || vec.length !== EMBEDDING_DIM) {
-    throw new Error(`Embedding length ${vec?.length ?? 0} != expected ${EMBEDDING_DIM}`);
+  const preds = data.predictions ?? [];
+  if (preds.length !== texts.length) {
+    throw new Error(`Vertex embed returned ${preds.length} vectors for ${texts.length} inputs`);
   }
-  return vec;
+  return preds.map((p, i) => {
+    const vec = p?.embeddings?.values;
+    if (!vec || vec.length !== EMBEDDING_DIM) {
+      throw new Error(
+        `Embedding length ${vec?.length ?? 0} != expected ${EMBEDDING_DIM} (input ${i})`,
+      );
+    }
+    return vec;
+  });
 }

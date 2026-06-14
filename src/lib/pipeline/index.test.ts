@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/agent/llm", () => ({ embed: vi.fn() }));
+vi.mock("@/lib/agent/llm", () => ({ embedMany: vi.fn() }));
 vi.mock("@/lib/repositories/repos", () => ({ upsertRepo: vi.fn() }));
 vi.mock("@/lib/repositories/pull-requests", () => ({ upsertPullRequest: vi.fn() }));
 vi.mock("./summarize", () => ({ summarizePR: vi.fn() }));
 vi.mock("./ingest", () => ({ fetchMergedPRs: vi.fn() }));
 
-import { embed } from "@/lib/agent/llm";
+import { embedMany } from "@/lib/agent/llm";
 import { upsertRepo } from "@/lib/repositories/repos";
 import { upsertPullRequest } from "@/lib/repositories/pull-requests";
 import { summarizePR } from "./summarize";
@@ -36,7 +36,9 @@ beforeEach(() => {
       createdAt: new Date("2026-01-01T00:00:00Z"),
     });
   vi.mocked(summarizePR).mockReset().mockResolvedValue(summary);
-  vi.mocked(embed).mockReset().mockResolvedValue(new Array(1536).fill(0));
+  vi.mocked(embedMany)
+    .mockReset()
+    .mockImplementation(async (texts) => texts.map(() => new Array(1536).fill(0)));
   vi.mocked(upsertPullRequest).mockReset().mockResolvedValue(undefined);
   vi.mocked(fetchMergedPRs).mockReset().mockResolvedValue(prs);
 });
@@ -47,8 +49,12 @@ describe("processRepo", () => {
     expect(fetchMergedPRs).not.toHaveBeenCalled();
     expect(upsertRepo).toHaveBeenCalledWith("o", "r");
     expect(summarizePR).toHaveBeenCalledTimes(2);
-    expect(embed).toHaveBeenCalledTimes(2);
-    expect(embed).toHaveBeenCalledWith("Feature A\n\ndid a thing");
+    // Both PRs embedded in a single batched call, not one call each.
+    expect(embedMany).toHaveBeenCalledTimes(1);
+    expect(embedMany).toHaveBeenCalledWith([
+      "Feature A\n\ndid a thing",
+      "Fix B\n\ndid a thing",
+    ]);
     expect(upsertPullRequest).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ repoId: 42, processed: 2, failed: 0, prNumbers: [10, 11] });
   });
@@ -99,5 +105,16 @@ describe("processRepo", () => {
     expect(result.prNumbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(summarizePR).toHaveBeenCalledTimes(12);
     expect(upsertPullRequest).toHaveBeenCalledTimes(12);
+    // 12 PRs / concurrency 5 → 3 batched embed calls (5 + 5 + 2).
+    expect(embedMany).toHaveBeenCalledTimes(3);
+  });
+
+  it("fails the whole batch's ready PRs when the shared embed call fails", async () => {
+    vi.mocked(embedMany).mockRejectedValueOnce(new Error("embed provider down"));
+    const result = await processRepo("o", "r", prs);
+    expect(result.processed).toBe(0);
+    expect(result.failed).toBe(2);
+    expect(result.prNumbers).toEqual([]);
+    expect(upsertPullRequest).not.toHaveBeenCalled();
   });
 });

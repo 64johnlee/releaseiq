@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chat, embed } from "./llm";
+import { chat, embed, embedMany } from "./llm";
 
 // The vertex provider is exercised in vertex.test.ts; here we only verify that
 // llm.ts delegates to it when LLM_PROVIDER=vertex (and not otherwise).
 vi.mock("./vertex", () => ({
   vertexChat: vi.fn(async () => "vertex-chat"),
-  vertexEmbed: vi.fn(async () => new Array(1536).fill(0.5)),
+  vertexEmbedMany: vi.fn(async (texts: string[]) => texts.map(() => new Array(1536).fill(0.5))),
 }));
 
 const ORIGINAL_ENV = { ...process.env };
@@ -86,6 +86,57 @@ describe("embed", () => {
       vi.fn(async () => new Response(JSON.stringify({ data: [{ embedding: [1, 2, 3] }] }), { status: 200 })),
     );
     await expect(embed("text")).rejects.toThrow(/Embedding length/);
+  });
+});
+
+describe("embedMany", () => {
+  it("sends all texts in one request and returns vectors ordered by input index", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              { index: 1, embedding: new Array(1536).fill(0.2) },
+              { index: 0, embedding: new Array(1536).fill(0.1) },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const out = await embedMany(["first", "second"]);
+    expect(out).toHaveLength(2);
+    // Returned out-of-order by the API (index 1 first) but re-sorted to input order.
+    expect(out[0][0]).toBe(0.1);
+    expect(out[1][0]).toBe(0.2);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string).input).toEqual(["first", "second"]);
+  });
+
+  it("returns an empty array without calling the API for no inputs", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(embedMany([])).resolves.toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects when any text is blank", async () => {
+    await expect(embedMany(["ok", "   "])).rejects.toThrow(/every text must be a non-empty string/);
+  });
+
+  it("throws when the vector count does not match the input count", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ data: [{ index: 0, embedding: new Array(1536).fill(0) }] }), {
+            status: 200,
+          }),
+      ),
+    );
+    await expect(embedMany(["a", "b"])).rejects.toThrow(/1 vectors for 2 inputs/);
   });
 });
 
