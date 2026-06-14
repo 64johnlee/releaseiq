@@ -1,13 +1,13 @@
 // Demo seed: inserts a sample repo + PRs + release note into the DB so the
 // repos / pulls / release-notes views are demoable without an LLM key.
-// Run: npm run db:seed   (reads DATABASE_URL from .env.local)
+// Run: npm run db:seed   (resolves the DB URL from env or .env.local)
 // Clear: delete the "demo/releaseiq" repo (cascades) — see README.
-import { readFileSync } from "node:fs";
 import postgres from "postgres";
+import { CONNECTION_STRING_ENV_HINT, resolveConnectionString } from "./db-url.mjs";
 
-const url = readFileSync(".env.local", "utf8").match(/^DATABASE_URL=(.+)$/m)?.[1]?.trim();
+const url = resolveConnectionString();
 if (!url) {
-  console.error("DATABASE_URL not found in .env.local");
+  console.error(`No DB connection string found (looked for: ${CONNECTION_STRING_ENV_HINT})`);
   process.exit(1);
 }
 
