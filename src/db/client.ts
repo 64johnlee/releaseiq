@@ -1,5 +1,9 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import {
+  connectionStringEnvHint,
+  resolveConnectionString,
+} from "./connection-string";
 import * as schema from "./schema";
 
 type DB = PostgresJsDatabase<typeof schema>;
@@ -13,9 +17,11 @@ let _client: ReturnType<typeof postgres> | null = null;
  */
 export function getDb(): DB {
   if (_db) return _db;
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = resolveConnectionString();
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error(
+      `No database connection string set (looked for: ${connectionStringEnvHint()})`,
+    );
   }
   _client = postgres(connectionString, { max: 5, prepare: false });
   _db = drizzle(_client, { schema });

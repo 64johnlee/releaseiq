@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { Config } from "drizzle-kit";
+import { resolveConnectionString } from "./src/db/connection-string";
 
 // drizzle-kit doesn't load .env.local (a Next.js convention), so load it here
 // without adding a dotenv dependency. Existing process.env values win.
@@ -17,6 +18,6 @@ export default {
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "",
+    url: resolveConnectionString() ?? "",
   },
 } satisfies Config;

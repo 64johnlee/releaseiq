@@ -1,11 +1,11 @@
 // Remove the demo seed data (the demo/releaseiq repo; PRs + release notes cascade).
-// Run: npm run db:seed:clear   (reads DATABASE_URL from .env.local)
-import { readFileSync } from "node:fs";
+// Run: npm run db:seed:clear   (resolves the DB URL from env or .env.local)
 import postgres from "postgres";
+import { CONNECTION_STRING_ENV_HINT, resolveConnectionString } from "./db-url.mjs";
 
-const url = readFileSync(".env.local", "utf8").match(/^DATABASE_URL=(.+)$/m)?.[1]?.trim();
+const url = resolveConnectionString();
 if (!url) {
-  console.error("DATABASE_URL not found in .env.local");
+  console.error(`No DB connection string found (looked for: ${CONNECTION_STRING_ENV_HINT})`);
   process.exit(1);
 }
 
