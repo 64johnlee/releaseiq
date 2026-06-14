@@ -27,7 +27,9 @@ export async function GET(request: Request) {
     if (!repo) {
       return NextResponse.json({ error: "repo not ingested yet" }, { status: 404 });
     }
-    const queryEmbedding = await embed(q);
+    // Embed the live query as RETRIEVAL_QUERY (vs RETRIEVAL_DOCUMENT for indexed
+    // PRs) so the vectors match in Vertex's asymmetric space; ignored by OpenAI.
+    const queryEmbedding = await embed(q, "RETRIEVAL_QUERY");
     const hits = await searchSimilar(repo.id, queryEmbedding, limit);
     return NextResponse.json({ query: q, repo: repoParam, hits });
   } catch (err) {
