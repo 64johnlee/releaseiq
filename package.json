@@ -20,6 +20,8 @@
     "db:seed:clear": "node scripts/seed-clear.mjs"
   },
   "dependencies": {
+    "@aws-sdk/rds-signer": "^3.1068.0",
+    "@vercel/functions": "^3.7.1",
     "drizzle-orm": "^0.36.4",
     "next": "^15.1.6",
     "postgres": "^3.4.5",
