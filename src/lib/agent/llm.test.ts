@@ -99,4 +99,20 @@ describe("provider dispatch", () => {
     process.env.LLM_PROVIDER = "vertex";
     await expect(embed("p", "RETRIEVAL_QUERY")).resolves.toHaveLength(1536);
   });
+
+  it("rejects an unknown LLM_PROVIDER with a clear error", async () => {
+    process.env.LLM_PROVIDER = "vertexx";
+    await expect(chat("p")).rejects.toThrow(/Unknown LLM_PROVIDER "vertexx"/);
+    await expect(embed("p")).rejects.toThrow(/expected "openai" or "vertex"/);
+  });
+});
+
+describe("blank-input guards", () => {
+  it("rejects an empty or whitespace-only chat prompt before any provider call", async () => {
+    await expect(chat("   ")).rejects.toThrow(/prompt must be a non-empty string/);
+  });
+
+  it("rejects an empty or whitespace-only embed text before any provider call", async () => {
+    await expect(embed("")).rejects.toThrow(/text must be a non-empty string/);
+  });
 });

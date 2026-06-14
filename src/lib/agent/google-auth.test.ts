@@ -64,8 +64,52 @@ describe("getGoogleAccessToken", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("coalesces concurrent cold-cache callers into a single token exchange", async () => {
+    const fetchMock = vi.fn(async () =>
+      tokenResponse({ access_token: "ya29.one", expires_in: 3600 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [a, b] = await Promise.all([getGoogleAccessToken(), getGoogleAccessToken()]);
+    expect(a).toBe("ya29.one");
+    expect(b).toBe("ya29.one");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-mints after a failed exchange instead of caching the rejection", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(tokenResponse("nope", 500))
+      .mockResolvedValueOnce(tokenResponse({ access_token: "ya29.two", expires_in: 3600 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getGoogleAccessToken()).rejects.toThrow(/Google token exchange 500/);
+    // The in-flight promise was cleared on failure, so the next call retries cleanly.
+    await expect(getGoogleAccessToken()).resolves.toBe("ya29.two");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("throws when service-account env is missing", async () => {
     delete process.env.GCP_SERVICE_ACCOUNT_PRIVATE_KEY;
+    await expect(getGoogleAccessToken()).rejects.toThrow(/GCP_SERVICE_ACCOUNT/);
+  });
+
+  it("trims surrounding whitespace in the service-account email", async () => {
+    process.env.GCP_SERVICE_ACCOUNT_EMAIL = "  svc@proj.iam.gserviceaccount.com  ";
+    const fetchMock = vi.fn(async () =>
+      tokenResponse({ access_token: "ya29.trim", expires_in: 3600 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getGoogleAccessToken();
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const assertion = new URLSearchParams(init.body as URLSearchParams).get("assertion")!;
+    const claims = JSON.parse(Buffer.from(assertion.split(".")[1], "base64url").toString());
+    expect(claims.iss).toBe("svc@proj.iam.gserviceaccount.com");
+  });
+
+  it("treats a blank-after-trim key as missing", async () => {
+    process.env.GCP_SERVICE_ACCOUNT_PRIVATE_KEY = "   ";
     await expect(getGoogleAccessToken()).rejects.toThrow(/GCP_SERVICE_ACCOUNT/);
   });
 

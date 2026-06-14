@@ -9,6 +9,7 @@
  * serverless function does not re-sign on every LLM call.
  */
 import { createSign } from "node:crypto";
+import { readErrorBody } from "./fetch-json";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const SCOPE = "https://www.googleapis.com/auth/cloud-platform";
@@ -30,12 +31,15 @@ interface CachedToken {
 }
 
 let cached: CachedToken | null = null;
+/** A token exchange already in progress, so concurrent cold-cache callers coalesce onto one request. */
+let inFlight: Promise<string> | null = null;
 
 function serviceAccountFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): ServiceAccount {
-  const clientEmail = env.GCP_SERVICE_ACCOUNT_EMAIL;
-  const rawKey = env.GCP_SERVICE_ACCOUNT_PRIVATE_KEY;
+  // Trim so a stray space/newline pasted into a Vercel env var can't corrupt the JWT or PEM.
+  const clientEmail = env.GCP_SERVICE_ACCOUNT_EMAIL?.trim();
+  const rawKey = env.GCP_SERVICE_ACCOUNT_PRIVATE_KEY?.trim();
   if (!clientEmail || !rawKey) {
     throw new Error(
       "GCP_SERVICE_ACCOUNT_EMAIL and GCP_SERVICE_ACCOUNT_PRIVATE_KEY must be set for the vertex provider",
@@ -68,17 +72,10 @@ function buildAssertion(sa: ServiceAccount, nowSeconds: number): string {
   return `${signingInput}.${signature}`;
 }
 
-/**
- * Return a valid GCP access token, reusing the cached one until it is near expiry.
- * Throws if the service-account env is missing or the token exchange fails.
- */
-export async function getGoogleAccessToken(
-  env: Record<string, string | undefined> = process.env,
-): Promise<string> {
-  const nowMs = Date.now();
-  if (cached && cached.expiresAtMs > nowMs) return cached.token;
-
+/** Sign a fresh assertion, exchange it for a token, and populate the cache. */
+async function mintToken(env: Record<string, string | undefined>): Promise<string> {
   const sa = serviceAccountFromEnv(env);
+  const nowMs = Date.now();
   const assertion = buildAssertion(sa, Math.floor(nowMs / 1000));
 
   const res = await fetch(TOKEN_URL, {
@@ -87,7 +84,7 @@ export async function getGoogleAccessToken(
     body: new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion }),
   });
   if (!res.ok) {
-    throw new Error(`Google token exchange ${res.status}: ${await res.text()}`);
+    throw new Error(`Google token exchange ${res.status}: ${await readErrorBody(res)}`);
   }
   const data = (await res.json()) as { access_token?: string; expires_in?: number };
   if (!data.access_token) {
@@ -99,7 +96,26 @@ export async function getGoogleAccessToken(
   return cached.token;
 }
 
+/**
+ * Return a valid GCP access token, reusing the cached one until it is near expiry.
+ * Concurrent callers with a cold cache share a single token exchange (no stampede).
+ * Throws if the service-account env is missing or the token exchange fails.
+ */
+export async function getGoogleAccessToken(
+  env: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  if (cached && cached.expiresAtMs > Date.now()) return cached.token;
+  if (inFlight) return inFlight;
+
+  // Clear the shared promise once settled so a later expiry (or a failure) re-mints.
+  inFlight = mintToken(env).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
 /** Test seam: drop the in-process token cache so each test starts cold. */
 export function __clearTokenCache(): void {
   cached = null;
+  inFlight = null;
 }
