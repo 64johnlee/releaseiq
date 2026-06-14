@@ -64,6 +64,21 @@ describe("vertexChat", () => {
     await expect(vertexChat("p")).rejects.toThrow(/Vertex chat 500/);
   });
 
+  it("trims surrounding whitespace in project/location env so the URL stays clean", async () => {
+    process.env.GCP_PROJECT_ID = "  my-proj  ";
+    process.env.GCP_LOCATION = " us-central1 ";
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ choices: [{ message: { content: "ok" } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await vertexChat("p");
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe(
+      "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/my-proj/locations/us-central1/endpoints/openapi/chat/completions",
+    );
+  });
+
   it("throws when required config is missing", async () => {
     delete process.env.GCP_PROJECT_ID;
     await expect(vertexChat("p")).rejects.toThrow(/GCP_PROJECT_ID and GCP_LOCATION/);

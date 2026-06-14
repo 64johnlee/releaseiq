@@ -13,7 +13,7 @@
  * here risks 3072-dim output that fails to insert.
  */
 import { EMBEDDING_DIM } from "@/db/schema";
-import { postJsonWithTimeout } from "./fetch-json";
+import { postJsonWithRetry, readErrorBody } from "./fetch-json";
 import { getGoogleAccessToken } from "./google-auth";
 import type { ChatOptions } from "./llm";
 
@@ -37,8 +37,9 @@ interface VertexConfig {
 function vertexConfig(
   env: Record<string, string | undefined> = process.env,
 ): VertexConfig {
-  const projectId = env.GCP_PROJECT_ID;
-  const location = env.GCP_LOCATION;
+  // Trim so a stray space/newline pasted into a Vercel env var can't break the URL or auth.
+  const projectId = env.GCP_PROJECT_ID?.trim();
+  const location = env.GCP_LOCATION?.trim();
   if (!projectId || !location) {
     throw new Error(
       "GCP_PROJECT_ID and GCP_LOCATION must be set for the vertex provider",
@@ -47,8 +48,8 @@ function vertexConfig(
   return {
     projectId,
     location,
-    chatModel: env.LLM_CHAT_MODEL ?? "gemini-2.5-flash",
-    embedModel: env.LLM_EMBED_MODEL ?? "gemini-embedding-001",
+    chatModel: env.LLM_CHAT_MODEL?.trim() || "gemini-2.5-flash",
+    embedModel: env.LLM_EMBED_MODEL?.trim() || "gemini-embedding-001",
   };
 }
 
@@ -67,14 +68,14 @@ export async function vertexChat(prompt: string, opts: ChatOptions = {}): Promis
     { role: "user", content: prompt },
   ];
   const url = `${apiHost(c.location)}/v1beta1/projects/${c.projectId}/locations/${c.location}/endpoints/openapi/chat/completions`;
-  const res = await postJsonWithTimeout(url, token, {
+  const res = await postJsonWithRetry(url, token, {
     model: `google/${c.chatModel}`,
     messages,
     temperature: opts.temperature ?? 0.3,
     ...(opts.json ? { response_format: { type: "json_object" } } : {}),
   });
   if (!res.ok) {
-    throw new Error(`Vertex chat ${res.status}: ${await res.text()}`);
+    throw new Error(`Vertex chat ${res.status}: ${await readErrorBody(res)}`);
   }
   const data = (await res.json()) as {
     choices: { message: { content: string } }[];
@@ -89,12 +90,12 @@ export async function vertexEmbed(
   const c = vertexConfig();
   const token = await getGoogleAccessToken();
   const url = `${apiHost(c.location)}/v1/projects/${c.projectId}/locations/${c.location}/publishers/google/models/${c.embedModel}:predict`;
-  const res = await postJsonWithTimeout(url, token, {
+  const res = await postJsonWithRetry(url, token, {
     instances: [{ content: text, task_type: taskType }],
     parameters: { outputDimensionality: EMBEDDING_DIM },
   });
   if (!res.ok) {
-    throw new Error(`Vertex embed ${res.status}: ${await res.text()}`);
+    throw new Error(`Vertex embed ${res.status}: ${await readErrorBody(res)}`);
   }
   const data = (await res.json()) as {
     predictions: { embeddings: { values: number[] } }[];

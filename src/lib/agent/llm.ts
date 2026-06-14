@@ -9,7 +9,7 @@
  * pipeline and routes never branch on which provider is configured.
  */
 import { EMBEDDING_DIM } from "@/db/schema";
-import { postJsonWithTimeout } from "./fetch-json";
+import { postJsonWithRetry, readErrorBody } from "./fetch-json";
 import { vertexChat, vertexEmbed } from "./vertex";
 import type { EmbedTaskType } from "./vertex";
 
@@ -20,9 +20,15 @@ interface LLMConfig {
   embedModel: string;
 }
 
-/** Active provider, lower-cased. Defaults to the OpenAI-compatible client. */
-function provider(): string {
-  return (process.env.LLM_PROVIDER ?? "openai").toLowerCase();
+type Provider = "openai" | "vertex";
+
+/** Active provider, lower-cased. Defaults to the OpenAI-compatible client; rejects unknown values. */
+function provider(): Provider {
+  const value = (process.env.LLM_PROVIDER ?? "openai").toLowerCase();
+  if (value !== "openai" && value !== "vertex") {
+    throw new Error(`Unknown LLM_PROVIDER "${value}"; expected "openai" or "vertex"`);
+  }
+  return value;
 }
 
 function config(): LLMConfig {
@@ -48,6 +54,9 @@ export interface ChatOptions {
 }
 
 export async function chat(prompt: string, opts: ChatOptions = {}): Promise<string> {
+  if (!prompt.trim()) {
+    throw new Error("chat: prompt must be a non-empty string");
+  }
   if (provider() === "vertex") return vertexChat(prompt, opts);
 
   const c = config();
@@ -55,14 +64,14 @@ export async function chat(prompt: string, opts: ChatOptions = {}): Promise<stri
     ...(opts.system ? [{ role: "system", content: opts.system }] : []),
     { role: "user", content: prompt },
   ];
-  const res = await postJsonWithTimeout(`${c.baseUrl}/chat/completions`, c.apiKey, {
+  const res = await postJsonWithRetry(`${c.baseUrl}/chat/completions`, c.apiKey, {
     model: c.chatModel,
     messages,
     temperature: opts.temperature ?? 0.3,
     ...(opts.json ? { response_format: { type: "json_object" } } : {}),
   });
   if (!res.ok) {
-    throw new Error(`LLM chat ${res.status}: ${await res.text()}`);
+    throw new Error(`LLM chat ${res.status}: ${await readErrorBody(res)}`);
   }
   const data = (await res.json()) as {
     choices: { message: { content: string } }[];
@@ -79,16 +88,19 @@ export async function embed(
   text: string,
   taskType: EmbedTaskType = "RETRIEVAL_DOCUMENT",
 ): Promise<number[]> {
+  if (!text.trim()) {
+    throw new Error("embed: text must be a non-empty string");
+  }
   if (provider() === "vertex") return vertexEmbed(text, taskType);
 
   const c = config();
-  const res = await postJsonWithTimeout(`${c.baseUrl}/embeddings`, c.apiKey, {
+  const res = await postJsonWithRetry(`${c.baseUrl}/embeddings`, c.apiKey, {
     model: c.embedModel,
     input: text,
     dimensions: EMBEDDING_DIM,
   });
   if (!res.ok) {
-    throw new Error(`LLM embed ${res.status}: ${await res.text()}`);
+    throw new Error(`LLM embed ${res.status}: ${await readErrorBody(res)}`);
   }
   const data = (await res.json()) as { data: { embedding: number[] }[] };
   const vec = data.data[0]?.embedding;
