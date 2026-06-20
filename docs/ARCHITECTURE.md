@@ -22,7 +22,7 @@ flowchart LR
   end
 
   GH["GitHub merged PRs"]
-  LLM["LLM<br/>OpenAI-compatible<br/>(Qwen DashScope / OpenAI)<br/>30s timeout"]
+  LLM["LLM (provider-agnostic)<br/>Google Vertex AI — keyless OAuth<br/>gemini-2.5-flash + gemini-embedding-001<br/>retry/backoff · 30s timeout"]
   DB[("Aurora PostgreSQL<br/>+ pgvector — HNSW cosine")]
 
   UI --> ING & SR & RN & LIST & H
@@ -54,8 +54,14 @@ flowchart LR
 ## Stack notes
 
 - **Frontend/deploy:** Next.js 15 (App Router) on Vercel.
-- **DB:** Amazon Aurora PostgreSQL with `pgvector` (HNSW cosine index). A free **Neon** Postgres is
-  used as a dev stand-in; the submission targets an AWS database.
-- **AI:** provider-agnostic, OpenAI-compatible LLM client (chat + embeddings) — works with Qwen
-  DashScope or OpenAI via env; 30s request timeout.
-- **Verification:** 63 tests (unit + PGlite integration against real pgvector), CI-gated at 80% coverage.
+- **DB:** Amazon Aurora PostgreSQL with `pgvector` 0.8 (HNSW cosine index), live in production via the
+  Vercel AWS Marketplace integration (IAM/OIDC, no connection string). A free **Neon** Postgres is used
+  as a local dev stand-in (`selectConnectionMode()` picks `url` → `iam` → `none`).
+- **AI:** provider-agnostic LLM facade selectable via `LLM_PROVIDER` (OpenAI-compatible *or* Vertex).
+  Production runs **Google Vertex AI** — `gemini-2.5-flash` (summarize/classify) + `gemini-embedding-001`
+  (1536-d embeddings via the native `:predict` API). **Keyless auth:** a service-account JWT is signed
+  locally (`node:crypto`) and exchanged for a short-lived OAuth token — no static key in the request path.
+  Hardened: transient-failure retry with backoff, `Retry-After`, single-flight token minting, clipped
+  error bodies; embeddings are batched (one `:predict` call per concurrency window); 30s request timeout.
+- **Auth, both halves:** keyless — Aurora via AWS IAM/OIDC (RDS token), Vertex via SA-JWT → OAuth.
+- **Verification:** 118 tests (unit + PGlite integration against real pgvector), CI-gated at 80% coverage.
