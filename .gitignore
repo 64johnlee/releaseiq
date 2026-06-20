@@ -7,3 +7,5 @@ node_modules
 drizzle/meta
 coverage
 *.tsbuildinfo
+
+.vercel
