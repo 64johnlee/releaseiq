@@ -1,0 +1,31 @@
+flowchart LR
+  UI["v0 / Next.js UI<br/>(Vercel)"]
+
+  subgraph API["Next.js API routes (Vercel)"]
+    ING["POST /api/ingest"]
+    SR["GET /api/search"]
+    RN["/api/release-notes"]
+    LIST["GET /api/repos<br/>GET /api/pulls"]
+    H["GET /api/health"]
+  end
+
+  subgraph PIPE["Pipeline (bounded concurrency)"]
+    SUM["summarize + classify"]
+    EMB["embed"]
+  end
+
+  GH["GitHub merged PRs"]
+  LLM["LLM (provider-agnostic)<br/>Google Vertex AI — keyless OAuth<br/>gemini-2.5-flash + gemini-embedding-001<br/>retry/backoff · 30s timeout"]
+  DB[("Aurora PostgreSQL<br/>+ pgvector — HNSW cosine")]
+
+  UI --> ING & SR & RN & LIST & H
+  GH --> ING
+  ING --> SUM --> LLM
+  ING --> EMB --> LLM
+  ING --> DB
+  SR --> EMB
+  SR -. cosine search .-> DB
+  RN --> LLM
+  RN --> DB
+  LIST --> DB
+  H -. SELECT 1 + pg_extension .-> DB
